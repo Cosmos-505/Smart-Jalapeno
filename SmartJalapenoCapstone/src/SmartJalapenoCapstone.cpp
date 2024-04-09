@@ -14,10 +14,24 @@
 #include "DS18B20.h"
 #include "OneWire.h"
 #include "math.h"
+#include "Adafruit_MQTT.h"
+#include "Neopixel.h"
+#include "Colors.h"
 
 
 // Let Device OS manage the connection to the Particle Cloud
 SYSTEM_MODE(SEMI_AUTOMATIC);
+
+//NEOPIXEL SPECTRUM LIGHT
+const int pixelPin = D2;
+Adafruit_NeoPixel pixels (39, SPI1, WS2812B); 
+const int NUM_PIXELS = 39;
+int first;
+int last;
+int color;
+int segment;
+void pixelFill(int first, int last, int color);
+
 
 //VEML LIGHT SENSOR
 Adafruit_VEML7700 veml;
@@ -35,8 +49,9 @@ const uint32_t msMETRIC_PUBLISH  = 10000;
 
 
 // Sets Pin D3 as data pin and the only sensor on bus
-DS18B20  ds18b20(D2, true); 
-OneWire ds(D2);
+DS18B20  ds18b20(D3, true); 
+int DSPin = D3;
+OneWire ds(DSPin);
 void getTemp();
 void publishData();
 
@@ -50,19 +65,31 @@ uint32_t msLastSample;
 
 
 
+
+
+
+
+
+
 // setup() runs once, when the device is first turned on
 void setup() {
 
-//DS Water Temp SENSOR
-  pinMode(D2,INPUT_PULLUP);
-
-// Stepper motor and Feed timer
-  stepper.setSpeed(15);
-  feedTimer.startTimer(10000);
+//NEO PIXEL STRIP set all pixels to white
+  pixels.begin();
+  pixels.setBrightness(20);
+  pixelFill(0,39,white);
+  pixels.show();
 
   //Serial Print
   Serial.begin(9600);
   waitFor(Serial.isConnected,10000);
+
+//DS Water Temp SENSOR
+  pinMode(D3,INPUT_PULLUP);
+
+// Stepper motor and Feed timer
+  stepper.setSpeed(15);
+  feedTimer.startTimer(10000);
 
 
 //VEML LIGHT SENSOR STARTUPS
@@ -71,8 +98,7 @@ void setup() {
   if (!veml.begin())
   {
     Serial.printf("Sensor not found");
-    while (1)
-      ;
+    while (1);
   }
   Serial.printf("Sensor found");
 
@@ -148,6 +174,8 @@ void setup() {
 
 void loop(){
 
+
+
 //Stepper Motor and Feed Timer
 if (feedTimer.isTimerReady()) {
   Serial.printf("MOTOR MOVING\nMOTOR MOVING\n");
@@ -200,17 +228,26 @@ if (feedTimer.isTimerReady()) {
 
 
 
-
+// PUBLISH WATER TEMP DATA GO HERE
 void publishData(){
   sprintf(szInfo, "%2.2f", fahrenheit);
   Particle.publish("dsTmp", szInfo, PRIVATE);
   msLastMetric = millis();
 }
 
+//GET TEMP FROM DS WATER TEMP
 void getTemp(){
-
+ 
   float tempCelsius = ds18b20.getTemperature();
+  Serial.printf("Celsius is %.2f\n", tempCelsius);
   float tempFahrenheit = ds18b20.convertToFahrenheit(tempCelsius);
-    Serial.printf("Water Temperature is %.2F\n", tempFahrenheit);
+  Serial.printf("Water Temperature is %.2F\n", tempFahrenheit);
   }
 
+void  pixelFill (int first, int last, int color) {
+   int i;
+   for (i = first; i<= last; i++) {
+      pixels.setPixelColor(i,white);
+      pixels.show();
+   }
+}
