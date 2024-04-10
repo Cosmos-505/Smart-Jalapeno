@@ -22,6 +22,9 @@
 // Let Device OS manage the connection to the Particle Cloud
 SYSTEM_MODE(SEMI_AUTOMATIC);
 
+//WATER LEVEL SENSOR
+void readWaterLevel();
+
 //NEOPIXEL SPECTRUM LIGHT
 const int pixelPin = D2;
 Adafruit_NeoPixel pixels (39, SPI1, WS2812B); 
@@ -74,13 +77,21 @@ uint32_t msLastSample;
 // setup() runs once, when the device is first turned on
 void setup() {
 
+
+// MAIN LED CONTROL
+  RGB.control(true);
+
+ // Initialize I2C communication
+  Wire.begin();
+
+
 //NEO PIXEL STRIP set all pixels to white
   pixels.begin();
   pixels.setBrightness(20);
   pixelFill(0,39,white);
   pixels.show();
 
-  //Serial Print
+  //Serial Print 
   Serial.begin(9600);
   waitFor(Serial.isConnected,10000);
 
@@ -151,7 +162,6 @@ void setup() {
   veml.setLowThreshold(5000);
   veml.setHighThreshold(20000);
   veml.interruptEnable(true);
-
 }
 
 
@@ -173,7 +183,6 @@ void setup() {
 
 
 void loop(){
-
 
 
 //Stepper Motor and Feed Timer
@@ -209,13 +218,19 @@ if (feedTimer.isTimerReady()) {
   //DS TEMP DATA
   if (millis() - msLastSample >= msSAMPLE_INTERVAL){
     getTemp();
+    readWaterLevel();
+    //GET PH
+    //LIGHT MEASURE IS CONSTANT
   }
 
   if (millis() - msLastMetric >= msMETRIC_PUBLISH){
-    Serial.printf("GONNA PUBLISH HERE.\n");
+    Serial.printf("GONNA PUBLISH EVERY 10 SECONDS.\n");
     publishData();
   }
 }
+
+
+
 
 
 
@@ -250,4 +265,34 @@ void  pixelFill (int first, int last, int color) {
       pixels.setPixelColor(i,white);
       pixels.show();
    }
+}
+
+void readWaterLevel() {
+    // Request data from the water level sensor
+    Wire.beginTransmission(0x77);
+    Wire.write(0x00); // Send command to read water level
+    Wire.endTransmission();
+
+    // Wait a short delay for the sensor to respond
+    delay(100);
+
+    // Read data from the sensor
+    Wire.requestFrom(0x77, 1); // Request 1 byte of data
+    if (Wire.available()) {
+        uint8_t waterLevel = Wire.read(); // Read water level data
+        // Convert water level data to percentage (0-100)
+        float waterLevelPercent = (waterLevel * 100.0) / 255.0;
+
+        // Print the water level percentage to serial monitor
+        Serial.printf("Water Level: %f%%\n", waterLevelPercent);
+
+        // Update the NeoPixel strip based on water level
+        if (waterLevelPercent < 50) {
+            // Low water level, set pixels to blue
+            RGB.color(255,0,0);
+        } else {
+            // High water level, set pixels to green
+            RGB.color(0,255,0);
+        }
+    }
 }
