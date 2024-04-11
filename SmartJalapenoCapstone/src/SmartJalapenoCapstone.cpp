@@ -135,14 +135,14 @@ void setup() {
 
 
 // //VEML LIGHT SENSOR STARTUPS
-  Serial.printf("Adafruit VEML7700 Test");
+//   Serial.printf("Adafruit VEML7700 Test");
 
-  if (!veml.begin())
-  {
-    Serial.printf("VEML Sensor not found");
-    while (1);
-  }
-  Serial.printf("VEML Sensor found");
+//   if (!veml.begin())
+//   {
+//     Serial.printf("VEML Sensor not found");
+//     while (1);
+//   }
+//   Serial.printf("VEML Sensor found");
 
   veml.setGain(VEML7700_GAIN_1);
   veml.setIntegrationTime(VEML7700_IT_800MS);
@@ -193,7 +193,7 @@ void setup() {
   veml.setLowThreshold(5000);
   veml.setHighThreshold(20000);
   veml.interruptEnable(true);
- }
+  }
 
 
 
@@ -229,7 +229,7 @@ if (feedTimer.isTimerReady()) {
 // ACTIONS TO BE PERFORMED EVERY 2.5 SECONDS
   if (millis() - msLastSample >= msSAMPLE_INTERVAL){
     getTemp();
-//   checkWaterLevel();
+//  checkWaterLevel();
 //     //GET PH
 //     //LIGHT MEASURE IS CONSTANT
     
@@ -510,7 +510,6 @@ double avergearray(int *arr, int number)
   } // if
   return avg;
 }
-
 
 
 
