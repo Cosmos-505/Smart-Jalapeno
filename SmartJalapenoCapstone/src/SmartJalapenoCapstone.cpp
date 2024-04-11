@@ -15,37 +15,37 @@
 #include "OneWire.h"
 #include "math.h"
 #include "Adafruit_MQTT.h"
-#include "Neopixel.h"
+#include "neopixel.h"
 #include "Colors.h"
 
 
 // Let Device OS manage the connection to the Particle Cloud
 SYSTEM_MODE(SEMI_AUTOMATIC);
 
-//WATER LEVEL SENSOR
-void readWaterLevel();
+
 
 //NEOPIXEL SPECTRUM LIGHT
 const int pixelPin = D2;
-Adafruit_NeoPixel pixels (39, SPI1, WS2812B); 
-const int NUM_PIXELS = 39;
+Adafruit_NeoPixel pixels(37, pixelPin, WS2812B); 
+const int NUM_PIXELS = 37;
 int first;
 int last;
 int color;
 int segment;
-void pixelFill(int first, int last, int color);
+
+
 
 
 //VEML LIGHT SENSOR
 Adafruit_VEML7700 veml;
-const int VEMLAddr = 0x10;
+const int VEMLAddr = 0x10; 
 
 //STEPPER MOTOR
-Stepper stepper (2048, D16, D15, D17, D18);
+Stepper stepper (2048, D10, D11, D12, D13);
 IoTTimer feedTimer;
 
 // DS WATER TEMP SENSOR
-const int MAXRETRY =4;
+const int      MAXRETRY          = 4;
 const uint32_t msSAMPLE_INTERVAL = 2500;
 const uint32_t msMETRIC_PUBLISH  = 10000;
 
@@ -55,7 +55,12 @@ const uint32_t msMETRIC_PUBLISH  = 10000;
 DS18B20  ds18b20(D3, true); 
 int DSPin = D3;
 OneWire ds(DSPin);
+
+
+//FUNCTIONS FOR USE LATER
+void readWaterLevel();
 void getTemp();
+void pixelFill(int first, int last, int color);
 void publishData();
 
 char     szInfo[64];
@@ -78,12 +83,12 @@ uint32_t msLastSample;
 void setup() {
 
 
+
 // MAIN LED CONTROL
-  RGB.control(true);
+ // RGB.control(true);
 
  // Initialize I2C communication
   Wire.begin();
-
 
 //NEO PIXEL STRIP set all pixels to white
   pixels.begin();
@@ -95,12 +100,9 @@ void setup() {
   Serial.begin(9600);
   waitFor(Serial.isConnected,10000);
 
-//DS Water Temp SENSOR
-  pinMode(D3,INPUT_PULLUP);
-
 // Stepper motor and Feed timer
-  stepper.setSpeed(15);
-  feedTimer.startTimer(10000);
+  stepper.setSpeed(10);
+  feedTimer.startTimer(30000);
 
 
 //VEML LIGHT SENSOR STARTUPS
@@ -191,28 +193,8 @@ if (feedTimer.isTimerReady()) {
   stepper.step(-800);
   delay(100);
   stepper.step(1500);
-  feedTimer.startTimer(10000);
+  feedTimer.startTimer(30000);
 }
-
-
-  //LIGHT VALUES
-  Serial.printf("Lux: ");
-  Serial.println(veml.readLux());
-  Serial.print("White: ");
-  Serial.println(veml.readWhite());
-  Serial.print("Raw ALS: ");
-  Serial.println(veml.readALS());
-
-  uint16_t irq = veml.interruptStatus();
-  if (irq & VEML7700_INTERRUPT_LOW)
-  {
-    Serial.printf("** Low threshold");
-  }
-  if (irq & VEML7700_INTERRUPT_HIGH)
-  {
-    Serial.printf("** High threshold");
-  }
-  delay(1000);
 
 
   //DS TEMP DATA
@@ -221,7 +203,18 @@ if (feedTimer.isTimerReady()) {
     readWaterLevel();
     //GET PH
     //LIGHT MEASURE IS CONSTANT
+    
+  //LIGHT VALUES
+  Serial.printf("Lux: ");
+  Serial.println(veml.readLux());
+  Serial.print("White: ");
+  Serial.println(veml.readWhite());
+  Serial.print("Raw ALS: ");
+  Serial.println(veml.readALS());
+
   }
+
+
 
   if (millis() - msLastMetric >= msMETRIC_PUBLISH){
     Serial.printf("GONNA PUBLISH EVERY 10 SECONDS.\n");
@@ -252,13 +245,27 @@ void publishData(){
 
 //GET TEMP FROM DS WATER TEMP
 void getTemp(){
- 
-  float tempCelsius = ds18b20.getTemperature();
-  Serial.printf("Celsius is %.2f\n", tempCelsius);
-  float tempFahrenheit = ds18b20.convertToFahrenheit(tempCelsius);
-  Serial.printf("Water Temperature is %.2F\n", tempFahrenheit);
-  }
+  float _temp;
+  int   i = 0;
 
+  do {
+    _temp = ds18b20.getTemperature();
+  } while (!ds18b20.crcCheck() && MAXRETRY > i++);
+
+  if (i < MAXRETRY) {
+    celsius = _temp;
+    fahrenheit = ds18b20.convertToFahrenheit(_temp);
+    Serial.printf("Fahrenheit reading is: %f\n", fahrenheit);
+  }
+  else {
+    celsius = fahrenheit = NAN;
+    Serial.println("Invalid reading");
+  }
+  msLastSample = millis();
+}
+
+
+//PIXELFILL
 void  pixelFill (int first, int last, int color) {
    int i;
    for (i = first; i<= last; i++) {
@@ -267,6 +274,7 @@ void  pixelFill (int first, int last, int color) {
    }
 }
 
+//GROVE WATER LEVEL SENSOR
 void readWaterLevel() {
     // Request data from the water level sensor
     Wire.beginTransmission(0x77);
@@ -286,7 +294,7 @@ void readWaterLevel() {
         // Print the water level percentage to serial monitor
         Serial.printf("Water Level: %f%%\n", waterLevelPercent);
 
-        // Update the NeoPixel strip based on water level
+//         // Update the NeoPixel strip based on water level
         if (waterLevelPercent < 50) {
             // Low water level, set pixels to blue
             RGB.color(255,0,0);
@@ -294,5 +302,5 @@ void readWaterLevel() {
             // High water level, set pixels to green
             RGB.color(0,255,0);
         }
-    }
-}
+     }
+ }
