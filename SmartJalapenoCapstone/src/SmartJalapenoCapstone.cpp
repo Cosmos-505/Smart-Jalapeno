@@ -1,58 +1,63 @@
 /* 
- * Project Smart Jalapeno Capstone
- * Author: Chris Cade
- * Date: April 6th, 2024
+ * Project myProject
+ * Author: Your Name
+ * Date: 
  * For comprehensive documentation and examples, please visit:
  * https://docs.particle.io/firmware/best-practices/firmware-template/
  */
 
 // Include Particle Device OS APIs
 #include "Particle.h"
-#include "Adafruit_VEML7700.h"
 #include "Stepper.h"
 #include "IoTTimer.h"
-#include "DS18B20.h"
-#include "OneWire.h"
-#include "math.h"
-#include "Adafruit_MQTT.h"
-#include "neopixel.h"
+#include "Neopixel.h"
 #include "Colors.h"
+#include "Adafruit_VEML7700.h"
+#include "Wire.h"
 
 
 // Let Device OS manage the connection to the Particle Cloud
-SYSTEM_MODE(SEMI_AUTOMATIC);
+SYSTEM_MODE(MANUAL);
 
 
-//pH Sensor
+const int THRESHOLD = 100;
+const int ATTINY1_HIGH_ADDR = 0x78;
+const int ATTINY2_LOW_ADDR = 0x77;
+
+unsigned char low_data[8] = {0};
+unsigned char high_data[12] = {0};
+
+void checkWaterLevel();
+void getHigh12SectionValue();
+void getLow8SectionValue();
+
+
+//PH SENSOR
 const int PHPIN = A5;
 float pHValue;
 float voltage;
 float offset = 16.2727;
 float calibrationSlope = -6.19835;
-const int SAMPLINGINTERVAL = 20;
-const int PRINTINTERVAL = 800;
+const int SAMPLINGINTERVAL = 2500;
+const int PRINTINTERVAL = 10000;
 unsigned int lastSample = 0;
 unsigned int lastPrint = 0;
 const int PH_ARRAY_LENGTH = 40;
 int phArray[PH_ARRAY_LENGTH];
 int phArrayIndex = 0;
-
 double avergearray(int *arr, int number);
 
 unsigned int samplingTime;
 unsigned int printTime;
 
+//VEML LIGHT SENSOR
+Adafruit_VEML7700 veml;
+const int VEMLAddr = 0x10; 
 
-//WATER LEVEL SENSOR
-unsigned char low_data[8] = {0};
-unsigned char high_data[12] = {0};
-void getHigh12SectionValue();
-void getlow8SectionValue();
-void checkWaterLevel();
-#define NO_TOUCH       0xFE
-#define THRESHOLD      100
-#define ATTINY1_HIGH_ADDR   0x78
-#define ATTINY2_LOW_ADDR   0x77
+//FUNCTIONS FOR USE LATER
+
+void pixelFill(int first, int last, int color);
+
 
 //NEOPIXEL SPECTRUM LIGHT
 const int pixelPin = D2;
@@ -62,10 +67,6 @@ int first;
 int last;
 int color;
 int segment;
-
-//VEML LIGHT SENSOR
-Adafruit_VEML7700 veml;
-const int VEMLAddr = 0x10; 
 
 //STEPPER MOTOR
 Stepper stepper (2048, D10, D11, D12, D13);
@@ -78,71 +79,39 @@ const uint32_t msMETRIC_PUBLISH  = 10000;
 
 
 
-// Sets Pin D3 as data pin and the only sensor on bus
-DS18B20  ds18b20(D3, true); 
-int DSPin = D3;
-OneWire ds(DSPin);
-
-
-//FUNCTIONS FOR USE LATER
-void readWaterLevel();
-void getTemp();
-void pixelFill(int first, int last, int color);
-void publishData();
-
-char     szInfo[64];
-float   celsius;
-float   fahrenheit;
-uint32_t msLastMetric;
-uint32_t msLastSample; 
 
 
 
 
 
-
-
-
-
-
-
-// // setup() runs once, when the device is first turned on
 void setup() {
 
-
-  Serial.begin(9600);
-  Serial.printf("pH Sensor Testing...\n");
-
-// MAIN LED CONTROL
- // RGB.control(true);
-
- // Initialize I2C communication
+//WATER LEVEL SENSOR
   Wire.begin();
 
 //NEO PIXEL STRIP set all pixels to white
   pixels.begin();
   pixels.setBrightness(20);
-  pixelFill(0,39,white);
+  pixelFill(0,37,white);
   pixels.show();
 
-  //Serial Print 
+    //Serial Print 
   Serial.begin(9600);
   waitFor(Serial.isConnected,10000);
 
 // Stepper motor and Feed timer
   stepper.setSpeed(10);
   feedTimer.startTimer(30000);
+  
 
+Serial.printf("Adafruit VEML7700 Test");
 
-// //VEML LIGHT SENSOR STARTUPS
-//   Serial.printf("Adafruit VEML7700 Test");
-
-//   if (!veml.begin())
-//   {
-//     Serial.printf("VEML Sensor not found");
-//     while (1);
-//   }
-//   Serial.printf("VEML Sensor found");
+  if (!veml.begin())
+  {
+    Serial.printf("Sensor not found");
+    while (1);
+  }
+  Serial.printf("Sensor found");
 
   veml.setGain(VEML7700_GAIN_1);
   veml.setIntegrationTime(VEML7700_IT_800MS);
@@ -193,75 +162,55 @@ void setup() {
   veml.setLowThreshold(5000);
   veml.setHighThreshold(20000);
   veml.interruptEnable(true);
-  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-void loop(){
-
-
-//Stepper Motor and Feed Timer
-if (feedTimer.isTimerReady()) {
-  Serial.printf("MOTOR MOVING\nMOTOR MOVING\n");
-  stepper.step(-800);
-  delay(100);
-  stepper.step(1500);
-  feedTimer.startTimer(30000);
 }
 
 
-// ACTIONS TO BE PERFORMED EVERY 2.5 SECONDS
-  if (millis() - msLastSample >= msSAMPLE_INTERVAL){
-    getTemp();
-//  checkWaterLevel();
-//     //GET PH
-//     //LIGHT MEASURE IS CONSTANT
-    
-  //LIGHT VALUES
-  Serial.printf("Lux: ");
-  Serial.println(veml.readLux());
-  Serial.print("White: ");
-  Serial.println(veml.readWhite());
-  Serial.print("Raw ALS: ");
-  Serial.println(veml.readALS());
 
+
+
+
+// loop() runs over and over again, as quickly as it can execute.
+void loop() {
+  if (feedTimer.isTimerReady()) {
+  Serial.printf("MOTOR MOVING\nMOTOR MOVING\n");
+  stepper.step(-40);
+  delay(100);
+  stepper.step(100);
+  feedTimer.startTimer(30000);
   }
+  
 
 
 
-  if (millis() - msLastMetric >= msMETRIC_PUBLISH){
-    Serial.printf("GONNA PUBLISH EVERY 10 SECONDS.\n");
-    publishData();
-  }
 
-    if (millis() - samplingTime > SAMPLINGINTERVAL)
+  if (millis() - samplingTime > SAMPLINGINTERVAL) //2.5 seconds
   {
+   
+
     phArray[phArrayIndex++] = analogRead(PHPIN);
     if (phArrayIndex == PH_ARRAY_LENGTH)
       phArrayIndex = 0;
     voltage = avergearray(phArray, PH_ARRAY_LENGTH) * 3.3 / 4096;
     pHValue = calibrationSlope * voltage + offset;
     samplingTime = millis();
+
+        //LIGHT VALUES
+  Serial.printf("Lux: ");
+  Serial.println(veml.readLux());
+  Serial.print("White: ");
+  Serial.println(veml.readWhite());
+  Serial.print("Raw ALS: ");
+  Serial.println(veml.readALS());   
   }
-  if (millis() - printTime > PRINTINTERVAL) 
+
+
+
+  if (millis() - printTime > PRINTINTERVAL) //10 seconds
   {
+    checkWaterLevel();
     Serial.printf("Voltage: %f pH: %f\n", voltage, pHValue);
+    Serial.println("\n*********************************************************\n");
+    
     printTime = millis();
   }
 }
@@ -274,42 +223,6 @@ if (feedTimer.isTimerReady()) {
 
 
 
-
-
-
-
-
-
-
-// PUBLISH WATER TEMP DATA GO HERE
-void publishData(){
-  sprintf(szInfo, "%2.2f", fahrenheit);
-  Particle.publish("dsTmp", szInfo, PRIVATE);
-  msLastMetric = millis();
-}
-
-//GET TEMP FROM DS WATER TEMP
-void getTemp(){
-  float _temp;
-  int   i = 0;
-
-  do {
-    _temp = ds18b20.getTemperature();
-  } while (!ds18b20.crcCheck() && MAXRETRY > i++);
-
-  if (i < MAXRETRY) {
-    celsius = _temp;
-    fahrenheit = ds18b20.convertToFahrenheit(_temp);
-    Serial.printf("Fahrenheit reading is: %f\n", fahrenheit);
-  }
-  else {
-    celsius = fahrenheit = NAN;
-    Serial.println("Invalid reading");
-  }
-  msLastSample = millis();
-}
-
-
 //PIXELFILL
 void  pixelFill (int first, int last, int color) {
    int i;
@@ -318,140 +231,6 @@ void  pixelFill (int first, int last, int color) {
       pixels.show();
    }
 }
-
-//GROVE WATER LEVEL SENSOR
-void readWaterLevel() {
-    // Request data from the water level sensor
-    Wire.beginTransmission(0x77);
-    Wire.write(0x00); // Send command to read water level
-    Wire.endTransmission();
-
-    // Wait a short delay for the sensor to respond
-    delay(100);
-
-    // Read data from the sensor
-    Wire.requestFrom(0x77, 1); // Request 1 byte of data
-    if (Wire.available()) {
-        uint8_t waterLevel = Wire.read(); // Read water level data
-        // Convert water level data to percentage (0-100)
-        float waterLevelPercent = (waterLevel * 100.0) / 255.0;
-
-        // Print the water level percentage to serial monitor
-        Serial.printf("Water Level: %f%%\n", waterLevelPercent);
-
-//         // Update the NeoPixel strip based on water level
-        if (waterLevelPercent < 50) {
-            // Low water level, set pixels to blue
-            RGB.color(255,0,0);
-        } else {
-            // High water level, set pixels to green
-            RGB.color(0,255,0);
-        }
-     }
- }
-
- void getHigh12SectionValue(void)
-{
-  memset(high_data, 0, sizeof(high_data));
-  Wire.requestFrom(ATTINY1_HIGH_ADDR, 12);
-  while (12 != Wire.available());
-
-  for (int i = 0; i < 12; i++) {
-    high_data[i] = Wire.read();
-  }
-  delay(10);
-}
-
-void getLow8SectionValue(void)
-{
-  memset(low_data, 0, sizeof(low_data));
-  Wire.requestFrom(ATTINY2_LOW_ADDR, 8);
-  while (8 != Wire.available());
-
-  for (int i = 0; i < 8 ; i++) {
-    low_data[i] = Wire.read(); // receive a byte as character
-  }
-  delay(10);
-}
-
-void checkWaterLevel()
-{
-  int sensorvalue_min = 250;
-  int sensorvalue_max = 255;
-  int low_count = 0;
-  int high_count = 0;
- 
-    uint32_t touch_val = 0;
-    uint8_t trig_section = 0;
-    low_count = 0;
-    high_count = 0;
-    getLow8SectionValue();
-    getHigh12SectionValue();
-
-    Serial.println("low 8 sections value = ");
-    for (int i = 0; i < 8; i++)
-    {
-      Serial.print(low_data[i]);
-      Serial.print(".");
-      if (low_data[i] >= sensorvalue_min && low_data[i] <= sensorvalue_max)
-      {
-        low_count++;
-      }
-      if (low_count == 8)
-      {
-        Serial.print("      ");
-        Serial.print("PASS");
-      }
-    }
-    Serial.println("  ");
-    Serial.println("  ");
-    Serial.println("high 12 sections value = ");
-    for (int i = 0; i < 12; i++)
-    {
-      Serial.print(high_data[i]);
-      Serial.print(".");
-
-      if (high_data[i] >= sensorvalue_min && high_data[i] <= sensorvalue_max)
-      {
-        high_count++;
-      }
-      if (high_count == 12)
-      {
-        Serial.print("      ");
-        Serial.print("PASS");
-      }
-    }
-
-    Serial.println("  ");
-    Serial.println("  ");
-
-    for (int i = 0 ; i < 8; i++) {
-      if (low_data[i] > THRESHOLD) {
-        touch_val |= 1 << i;
-
-      }
-    }
-    for (int i = 0 ; i < 12; i++) {
-      if (high_data[i] > THRESHOLD) {
-        touch_val |= (uint32_t)1 << (8 + i);
-      }
-    }
-
-    while (touch_val & 0x01)
-    {
-      trig_section++;
-      touch_val >>= 1;
-    }
-    Serial.print("water level = ");
-    Serial.print(trig_section * 5);
-    Serial.println("% ");
-    Serial.println(" ");
-    Serial.println("*********************************************************");
-    delay(1000);
-  
-}
-
-
 
 
 double avergearray(int *arr, int number)
@@ -511,13 +290,89 @@ double avergearray(int *arr, int number)
   return avg;
 }
 
+void getHigh12SectionValue() {
+  memset(high_data, 0, sizeof(high_data));
+  Wire.beginTransmission(ATTINY1_HIGH_ADDR);
+  Wire.write(0x00); // Register address
+  Wire.endTransmission();
 
+  Wire.requestFrom(ATTINY1_HIGH_ADDR, 12);
+  while (12 != Wire.available());
 
+  for (int i = 0; i < 12; i++) {
+    high_data[i] = Wire.read();
+  }
+  delay(10);
+}
 
+void getLow8SectionValue() {
+  memset(low_data, 0, sizeof(low_data));
+  Wire.beginTransmission(ATTINY2_LOW_ADDR);
+  Wire.write(0x00); // Register address
+  Wire.endTransmission();
 
+  Wire.requestFrom(ATTINY2_LOW_ADDR, 8);
+  while (8 != Wire.available());
 
+  for (int i = 0; i < 8; i++) {
+    low_data[i] = Wire.read();
+  }
+  delay(10);
+}
 
+void checkWaterLevel() {
+  int sensorvalue_min = 250;
+  int sensorvalue_max = 255;
+  int low_count = 0;
+  int high_count = 0;
 
+ // while (1) {
+    uint32_t touch_val = 0;
+    uint8_t trig_section = 0;
+    low_count = 0;
+    high_count = 0;
+    
+    getLow8SectionValue();
+    getHigh12SectionValue();
 
+    Serial.println("low 8 sections value = ");
+    for (int i = 0; i < 8; i++) {
+      Serial.printf("%d.", low_data[i]);
+      if (low_data[i] >= sensorvalue_min && low_data[i] <= sensorvalue_max) {
+        low_count++;
+      }
+    
+    }
+    Serial.println("  ");
+    Serial.println("  ");
+    Serial.println("high 12 sections value = ");
+    for (int i = 0; i < 12; i++) {
+      Serial.printf("%d.", high_data[i]);
+      if (high_data[i] >= sensorvalue_min && high_data[i] <= sensorvalue_max) {
+        high_count++;
+      }
+      
+    }
+    Serial.println("  ");
+    Serial.println("  ");
 
+    for (int i = 0 ; i < 8; i++) {
+      if (low_data[i] > THRESHOLD) {
+        touch_val |= 1 << i;
+      }
+    }
+    for (int i = 0 ; i < 12; i++) {
+      if (high_data[i] > THRESHOLD) {
+        touch_val |= (uint32_t)1 << (8 + i);
+      }
+    }
+
+    while (touch_val & 0x01) {
+      trig_section++;
+      touch_val >>= 1;
+    }
+    Serial.printf("water level = %d%% \n", trig_section * 5);
+    Serial.println("\n*********************************************************\n");
+    
+  }
 
