@@ -39,6 +39,7 @@ double   fahrenheit;
 uint32_t msLastMetric;
 uint32_t msLastSample;
 
+unsigned int last, lastTime;
 
 const int THRESHOLD = 100;
 const int ATTINY1_HIGH_ADDR = 0x78;
@@ -58,8 +59,12 @@ const int ButtonPin = D5;
 
 void setup() {
 
-
-
+  // Connect to Internet but not Particle Cloud
+WiFi.on();
+WiFi.connect();
+  while(WiFi.connecting()) {
+    Serial.printf(".");
+  }
   Wire.begin();
   Serial.begin(9600);
 
@@ -75,11 +80,16 @@ void loop() {
 MQTT_connect();
 MQTT_ping();
 
-mqtttemp.publish(fahrenheit);
+
+ 
 
   //check();
   getTemp();
 
+if((millis()-lastTime > 6000)) {
+   if (mqtt.Update())
+mqtttemp.publish(fahrenheit);
+}
 //FEED BUTTON
   int buttonstate;
   buttonstate = digitalRead(ButtonPin);
@@ -88,7 +98,10 @@ mqtttemp.publish(fahrenheit);
       Serial.printf("Feeding fish\n");
       Serial.printf("Print %i\n",ButtonPin);
     }
+
+
 }
+
 
 
 
@@ -234,4 +247,20 @@ void MQTT_connect() {
        delay(5000);  // wait 5 seconds and try again
   }
   Serial.printf("MQTT Connected!\n");
+}
+
+bool MQTT_ping() {
+  static unsigned int last;
+  bool pingStatus;
+
+  if ((millis()-last)>120000) {
+      Serial.printf("Pinging MQTT \n");
+      pingStatus = mqtt.ping();
+      if(!pingStatus) {
+        Serial.printf("Disconnecting \n");
+        mqtt.disconnect();
+      }
+      last = millis();
+  }
+  return pingStatus;
 }

@@ -17,15 +17,35 @@
 #include "Button.h"
 #include "DS18B20.h"
 #include "math.h"
+#include "Adafruit_MQTT.h"
+#include "Adafruit_MQTT/Adafruit_MQTT_SPARK.h"
+#include "Adafruit_MQTT/Adafruit_MQTT.h"
+#include "credentials.h"
 
 
 
 // Let Device OS manage the connection to the Particle Cloud
 SYSTEM_MODE(MANUAL);
 
-//DS18 TEMP SENSOR
+
+//PUBLISHING TO ADAFRUIT
+/************ Global State (you don't need to change this!) ***   ***************/ 
+TCPClient TheClient; 
+
+// Setup the MQTT client class by passing in the WiFi client and MQTT server and login details. 
+Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
+void MQTT_connect();
+bool MQTT_ping();
+Adafruit_MQTT_Publish mqtttemp = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/WaterTemp");
+Adafruit_MQTT_Publish mqttwater = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/WaterLevel");
+Adafruit_MQTT_Publish mqttlight = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/LightQuality");
+Adafruit_MQTT_Publish mqttph = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/phScale");
 
 
+
+
+
+//ds18 Water Sensor
 const int16_t dsData = D3;
 // Sets Pin D3 as data pin and the only sensor on bus
 DS18B20  ds18b20(dsData, true); 
@@ -45,6 +65,7 @@ const int ATTINY2_LOW_ADDR = 0x77;
 
 unsigned char low_data[8] = {0};
 unsigned char high_data[12] = {0};
+float water;
 
 void checkWaterLevel();
 void getHigh12SectionValue();
@@ -72,12 +93,9 @@ unsigned int printTime;
 //VEML LIGHT SENSOR
 Adafruit_VEML7700 veml;
 const int VEMLAddr = 0x10; 
-
-//FUNCTIONS FOR USE LATER
+float whitelight;
 
 void pixelFill(int first, int last, int color);
-
-
 //NEOPIXEL SPECTRUM LIGHT
 const int pixelPin = D2;
 Adafruit_NeoPixel pixels(37, pixelPin, WS2812B); 
@@ -106,6 +124,13 @@ const uint32_t msMETRIC_PUBLISH  = 10000;
 
 
 void setup() {
+
+//WIFI FOR PUBLISHING 
+WiFi.on();
+WiFi.connect();
+  while(WiFi.connecting()) {
+Serial.printf(".");
+  }
 
 //WATER LEVEL SENSOR
   Wire.begin();
@@ -193,6 +218,10 @@ Serial.printf("Adafruit VEML7700 Test");
 
 // loop() runs over and over again, as quickly as it can execute.
 void loop() {
+MQTT_connect();
+MQTT_ping();  
+
+
   if (feedTimer.isTimerReady()) {
   Serial.printf("MOTOR MOVING\nMOTOR MOVING\n");
   stepper.step(-40);
@@ -214,6 +243,7 @@ void loop() {
 
   if (millis() - samplingTime > SAMPLINGINTERVAL) {//2.5 seconds
     
+
       //read pH
     phArray[phArrayIndex++] = analogRead(PHPIN);
     if (phArrayIndex == PH_ARRAY_LENGTH)
@@ -221,9 +251,7 @@ void loop() {
     voltage = avergearray(phArray, PH_ARRAY_LENGTH) * 3.3 / 4096;
     pHValue = calibrationSlope * voltage + offset;
     samplingTime = millis();
-
- 
-  }
+    }
 
 
 
@@ -231,23 +259,29 @@ void loop() {
   {
     //Water Level
     checkWaterLevel();
-    //print ph
-                //LIGHT VALUES
+    //read temp
+      getTemp();
+    //LIGHT VALUES
   Serial.printf("Lux: ");
   Serial.println(veml.readLux());
   Serial.print("White: ");
   Serial.println(veml.readWhite());
+  whitelight = (veml.readWhite());
   Serial.print("Raw ALS: ");
   Serial.println(veml.readALS());  
 
-    //read temp
-      getTemp();
+  
     Serial.printf("Voltage: %f pH: %f\n", voltage, pHValue);
     Serial.println("\n*********************************************************\n");
     
     printTime = millis();
-    //publishData();
 
+
+    //publishData();
+    mqtttemp.publish(fahrenheit);
+    mqttlight.publish(whitelight);
+    mqttwater.publish(water);
+    mqttph.publish(pHValue); 
 
   }
 }
@@ -361,6 +395,7 @@ void checkWaterLevel() {
   int sensorvalue_max = 255;
   int low_count = 0;
   int high_count = 0;
+  int water;
 
  // while (1) {
     uint32_t touch_val = 0;
@@ -407,6 +442,7 @@ void checkWaterLevel() {
       trig_section++;
       touch_val >>= 1;
     }
+    water = trig_section*5;
     Serial.printf("water level = %d%% \n", trig_section * 5);
     Serial.println("\n*********************************************************\n");
     
@@ -430,10 +466,48 @@ void getTemp(){
     celsius = _temp;
     fahrenheit = ds18b20.convertToFahrenheit(_temp);
     Serial.printf("Temp is %.2fF\n", fahrenheit);
+    
   }
   else {
     celsius = fahrenheit = NAN;
     Serial.println("Invalid reading");
   }
   msLastSample = millis();
+}
+
+// Function to connect and reconnect as necessary to the MQTT server.
+// Should be called in the loop function and it will take care if connecting.
+void MQTT_connect() {
+  int8_t ret;
+ 
+  // Return if already connected.
+  if (mqtt.connected()) {
+    return;
+  }
+ 
+  Serial.print("Connecting to MQTT... ");
+ 
+  while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
+       Serial.printf("Error Code %s\n",mqtt.connectErrorString(ret));
+       Serial.printf("Retrying MQTT connection in 5 seconds...\n");
+       mqtt.disconnect();
+       delay(5000);  // wait 5 seconds and try again
+  }
+  Serial.printf("MQTT Connected!\n");
+}
+
+bool MQTT_ping() {
+  static unsigned int last;
+  bool pingStatus;
+
+  if ((millis()-last)>120000) {
+      Serial.printf("Pinging MQTT \n");
+      pingStatus = mqtt.ping();
+      if(!pingStatus) {
+        Serial.printf("Disconnecting \n");
+        mqtt.disconnect();
+      }
+      last = millis();
+  }
+  return pingStatus;
 }
