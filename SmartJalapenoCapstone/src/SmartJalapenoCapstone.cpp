@@ -14,12 +14,31 @@
 #include "Colors.h"
 #include "Adafruit_VEML7700.h"
 #include "Wire.h"
+#include "Button.h"
+#include "DS18B20.h"
+#include "math.h"
+
 
 
 // Let Device OS manage the connection to the Particle Cloud
 SYSTEM_MODE(MANUAL);
 
+//DS18 TEMP SENSOR
 
+
+const int16_t dsData = D3;
+// Sets Pin D3 as data pin and the only sensor on bus
+DS18B20  ds18b20(dsData, true); 
+void getTemp();
+
+char     szInfo[64];
+double   celsius;
+double   fahrenheit;
+uint32_t msLastMetric;
+uint32_t msLastSample;
+
+
+//WATER LEVEL SENSOR
 const int THRESHOLD = 100;
 const int ATTINY1_HIGH_ADDR = 0x78;
 const int ATTINY2_LOW_ADDR = 0x77;
@@ -68,7 +87,9 @@ int last;
 int color;
 int segment;
 
-//STEPPER MOTOR
+//STEPPER MOTOR and BUTTON
+Button button(D5, INPUT_PULLDOWN);
+const int buttonPin = D5;
 Stepper stepper (2048, D10, D11, D12, D13);
 IoTTimer feedTimer;
 
@@ -99,9 +120,10 @@ void setup() {
   Serial.begin(9600);
   waitFor(Serial.isConnected,10000);
 
-// Stepper motor and Feed timer
+// Stepper motor, button and Feed timer
   stepper.setSpeed(10);
   feedTimer.startTimer(30000);
+  pinMode(D5,INPUT_PULLDOWN);
   
 
 Serial.printf("Adafruit VEML7700 Test");
@@ -179,14 +201,20 @@ void loop() {
   feedTimer.startTimer(30000);
   }
   
+//FEED BUTTON
+  int buttonstate;
+  buttonstate = digitalRead(buttonPin);
+    if (buttonstate ==1) {
+       stepper.step(1);
+      Serial.printf("Feeding fish\n");
+      Serial.printf("Feeding fish %i steps\n",buttonPin);
+    }
 
 
 
-
-  if (millis() - samplingTime > SAMPLINGINTERVAL) //2.5 seconds
-  {
-   
-
+  if (millis() - samplingTime > SAMPLINGINTERVAL) {//2.5 seconds
+    
+      //read pH
     phArray[phArrayIndex++] = analogRead(PHPIN);
     if (phArrayIndex == PH_ARRAY_LENGTH)
       phArrayIndex = 0;
@@ -194,24 +222,33 @@ void loop() {
     pHValue = calibrationSlope * voltage + offset;
     samplingTime = millis();
 
-        //LIGHT VALUES
-  Serial.printf("Lux: ");
-  Serial.println(veml.readLux());
-  Serial.print("White: ");
-  Serial.println(veml.readWhite());
-  Serial.print("Raw ALS: ");
-  Serial.println(veml.readALS());   
+ 
   }
 
 
 
   if (millis() - printTime > PRINTINTERVAL) //10 seconds
   {
+    //Water Level
     checkWaterLevel();
+    //print ph
+                //LIGHT VALUES
+  Serial.printf("Lux: ");
+  Serial.println(veml.readLux());
+  Serial.print("White: ");
+  Serial.println(veml.readWhite());
+  Serial.print("Raw ALS: ");
+  Serial.println(veml.readALS());  
+
+    //read temp
+      getTemp();
     Serial.printf("Voltage: %f pH: %f\n", voltage, pHValue);
     Serial.println("\n*********************************************************\n");
     
     printTime = millis();
+    //publishData();
+
+
   }
 }
 
@@ -231,7 +268,6 @@ void  pixelFill (int first, int last, int color) {
       pixels.show();
    }
 }
-
 
 double avergearray(int *arr, int number)
 {
@@ -376,3 +412,28 @@ void checkWaterLevel() {
     
   }
 
+void publishData(){
+  sprintf(szInfo, "Temp is %2.2fF", fahrenheit);
+  Particle.publish("dsTmp", szInfo, PRIVATE);
+  msLastMetric = millis();
+}
+
+void getTemp(){
+  float _temp;
+  int   i = 0;
+
+  do {
+    _temp = ds18b20.getTemperature();
+  } while (!ds18b20.crcCheck() && MAXRETRY > i++);
+
+  if (i < MAXRETRY) {
+    celsius = _temp;
+    fahrenheit = ds18b20.convertToFahrenheit(_temp);
+    Serial.printf("Temp is %.2fF\n", fahrenheit);
+  }
+  else {
+    celsius = fahrenheit = NAN;
+    Serial.println("Invalid reading");
+  }
+  msLastSample = millis();
+}
