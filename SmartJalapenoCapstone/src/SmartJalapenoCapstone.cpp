@@ -1,7 +1,7 @@
 /* 
- * Project myProject
- * Author: Your Name
- * Date: 
+ * Project THe Smart Jalapeno Aquaponic Setup
+ * Author: Chris Cade
+ * Date: 4/16/2024
  * For comprehensive documentation and examples, please visit:
  * https://docs.particle.io/firmware/best-practices/firmware-template/
  */
@@ -253,8 +253,6 @@ MQTT_ping();
     samplingTime = millis();
     }
 
-
-
   if (millis() - printTime > PRINTINTERVAL) //10 seconds
   {
     //Water Level
@@ -395,7 +393,7 @@ void checkWaterLevel() {
   int sensorvalue_max = 255;
   int low_count = 0;
   int high_count = 0;
-  int water;
+  
 
  // while (1) {
     uint32_t touch_val = 0;
