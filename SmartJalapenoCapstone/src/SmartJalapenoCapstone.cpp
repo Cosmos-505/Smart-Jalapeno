@@ -20,7 +20,7 @@
 #include "Adafruit_MQTT.h"
 #include "Adafruit_MQTT/Adafruit_MQTT_SPARK.h"
 #include "Adafruit_MQTT/Adafruit_MQTT.h"
-#include "credentials.h"
+#include "credential.h"
 
 
 
